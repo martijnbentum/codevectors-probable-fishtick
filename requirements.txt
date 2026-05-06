@@ -1,0 +1,13 @@
+# Minimal direct Python dependencies used by this repository.
+pandas
+odfpy
+TextGrid
+ipython
+
+# Additional pip-installable repositories requested for this environment.
+git+https://github.com/martijnbentum/to_vector.git
+git+https://github.com/martijnbentum/phraser.git
+git+https://github.com/martijnbentum/echoframe.git
+git+https://github.com/martijnbentum/frame.git
+git+https://github.com/martijnbentum/speech-vector-search.git
+git+https://github.com/martijnbentum/ssh-audio-play.git

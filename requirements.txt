@@ -1,3 +1,4 @@
+--extra-index-url https://download.pytorch.org/whl/cu126
 # Minimal direct Python dependencies used by this repository.
 pandas
 odfpy

@@ -3,6 +3,8 @@ pandas
 odfpy
 TextGrid
 ipython
+torch==2.9.1+cu126
+torchaudio==2.9.1+cu126
 
 # Additional pip-installable repositories requested for this environment.
 git+https://github.com/martijnbentum/to_vector.git

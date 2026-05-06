@@ -32,7 +32,7 @@ def make_or_load_store(model_name):
     return s
 
 def _to_comp(filename):
-    return Path(.parent.parent.name.split('-')[-1]
+    return Path(filename).parent.parent.name.split('-')[-1]
 
 def load_phrases():
     phrases = list(models.Phrase.objects.all())

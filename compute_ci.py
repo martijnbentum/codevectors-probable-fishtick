@@ -20,7 +20,7 @@ def compute_codebook_indices(model_name, items, gpu = True, batch_size = 39):
     print(f'computing codebook indices for model {model_name}')
     print(f'batch size {batch_size}')
     print(f'number of items {len(items)}')
-    store = make_or_load_store(model_name)
+    store = sh.make_or_load_store(model_name)
     print(f'store root {store.root}')
     bci.compute_codebook_indices_batch(items, model_name, store= store, 
         gpu = gpu, batch_size = batch_size)

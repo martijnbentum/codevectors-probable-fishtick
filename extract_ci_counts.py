@@ -11,6 +11,7 @@ def handle_model_name(model_name, counts, flatten_ci = True):
     for metadata in progressbar(store.metadatas):
         try: handle_metadata(metadata, counts, flatten_ci)
         except ValueError as e: error.append((metadata, str(e)))
+        except AttributeError as e: error.append((metadata, str(e)))
     return error
     
 
@@ -64,6 +65,7 @@ def flatten(items):
 def load_phone_labels():
     with open('../phone_labels','r') as fin:
         labels = fin.read().split('\n')
+    return labels
 
 def make_counts(model_names = None, phone_labels = None, n_codes = 640):
     return ci_store.CIStore(model_names, phone_labels, n_codes)

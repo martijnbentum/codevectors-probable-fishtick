@@ -41,3 +41,14 @@ class CIStore:
         c = code if code is not None else slice(None)
         return self.counts[m, p, c]
 
+
+def entropy(counts, base=2):
+    '''Compute entropy from counts.
+    counts:             iterable of non-negative counts
+    base:               logarithm base (default bits)
+    '''
+    total = counts.sum()
+    if total == 0: return 0.0
+    p = counts[counts > 0] / total
+    return -(p * np.log(p) / np.log(base)).sum()
+

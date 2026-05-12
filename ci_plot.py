@@ -6,7 +6,7 @@ from ci_analysis import (entropy, sort_w2v2_model_names,
                           phone_vs_rest,
                           top_k_stability_trajectory, top_k_rank_matrix)
 from cb_analysis import (drift_trajectory, phones_weighted_drift,
-                          phone_weighted_drift_trajectory)
+                          phone_weighted_drift_trajectory, mean_intra_distance)
 
 
 def _checkpoint_xticks(models):
@@ -373,8 +373,24 @@ def plot_top_k_rank_heatmap(store, phone, models=None, k=10,
 # Codevector drift trajectory
 # ---------------------------------------------------------------------------
 
+def _ref_model(models, reference):
+    if reference == 'first':
+        return models[0]
+    if reference == 'last':
+        return models[-1]
+    return reference
+
+
+def _ref_desc(models, reference):
+    ref = _ref_model(models, reference)
+    try:
+        return f'step {int(ref.split("-")[-1])}'
+    except (ValueError, IndexError):
+        return ref
+
+
 def plot_drift_trajectory(models, reference='first', metric='l2',
-                           xlim=(1000, 50000), ax=None):
+                           normalize=False, xlim=(1000, 50000), ax=None):
     """
     Plot mean codevector drift vs a reference checkpoint over training.
 
@@ -382,20 +398,18 @@ def plot_drift_trajectory(models, reference='first', metric='l2',
     models:     ordered list of checkpoint names
     reference:  'first', 'last', or a model name
     metric:     'l2' (default) or 'cosine'
+    normalize:  divide by mean intra-codebook distance of the reference model,
+                so 1.0 = a full inter-codevector step
     """
     values, _ = drift_trajectory(models, reference=reference, metric=metric)
 
-    if reference == 'first':
-        ref_desc = f'step {_checkpoint_xticks(models)[0]}'
-    elif reference == 'last':
-        ref_desc = f'step {_checkpoint_xticks(models)[-1]}'
-    else:
-        try:
-            ref_desc = f'step {int(reference.split("-")[-1])}'
-        except (ValueError, IndexError):
-            ref_desc = reference
+    if normalize and metric == 'l2':
+        scale = mean_intra_distance(_ref_model(models, reference))
+        values = values / scale
 
-    ylabel = f'mean {metric} drift'
+    ref_desc = _ref_desc(models, reference)
+    ylabel = ('drift / mean intra-codebook distance' if normalize and metric == 'l2'
+              else f'mean {metric} drift')
     title = f'Codevector drift from {ref_desc}'
     return plot_over_checkpoints(
         models, {'mean drift': values}, ylabel=ylabel, title=title,
@@ -405,7 +419,7 @@ def plot_drift_trajectory(models, reference='first', metric='l2',
 
 def plot_phone_drift_trajectory(store, phones=None, models=None,
                                   reference='first', metric='l2',
-                                  xlim=(1000, 50000), ax=None):
+                                  normalize=False, xlim=(1000, 50000), ax=None):
     """
     Plot phone-weighted codevector drift vs a reference checkpoint over training.
 
@@ -413,6 +427,7 @@ def plot_phone_drift_trajectory(store, phones=None, models=None,
                 list / str    → one line per phone in the list
     reference:  'first', 'last', or a model name
     metric:     'l2' (default) or 'cosine'
+    normalize:  divide by mean intra-codebook distance of the reference model
     """
     models = _sorted_models(store, models)
 
@@ -421,23 +436,17 @@ def plot_phone_drift_trajectory(store, phones=None, models=None,
     elif isinstance(phones, str):
         phones = [phones]
 
-    if reference == 'first':
-        ref_desc = f'step {_checkpoint_xticks(models)[0]}'
-    elif reference == 'last':
-        ref_desc = f'step {_checkpoint_xticks(models)[-1]}'
-    else:
-        try:
-            ref_desc = f'step {int(reference.split("-")[-1])}'
-        except (ValueError, IndexError):
-            ref_desc = reference
+    scale = mean_intra_distance(_ref_model(models, reference)) if normalize and metric == 'l2' else 1.0
 
     values_dict = {
         p: phone_weighted_drift_trajectory(store, models=models, reference=reference,
-                                            phone=p, metric=metric)[0]
+                                            phone=p, metric=metric)[0] / scale
         for p in phones
     }
 
-    ylabel = f'mean {metric} drift (phone-weighted)'
+    ref_desc = _ref_desc(models, reference)
+    ylabel = ('drift / mean intra-codebook distance' if normalize and metric == 'l2'
+              else f'mean {metric} drift (phone-weighted)')
     title = (f'Phone-weighted codevector drift from {ref_desc} — phone: {phones[0]}'
              if len(phones) == 1
              else f'Phone-weighted codevector drift from {ref_desc} per phone')
@@ -448,13 +457,14 @@ def plot_phone_drift_trajectory(store, phones=None, models=None,
 
 
 def plot_drift_per_phone(store, model_a, model_b, phones=None,
-                          metric='l2', ax=None):
+                          metric='l2', normalize=False, ax=None):
     """
     Bar chart of phone-weighted codevector drift per phone between two checkpoints.
 
-    phones:   None / 'all'  → all phones in the store
-              list / str    → subset of phones
-    metric:   'l2' (default) or 'cosine'
+    phones:    None / 'all'  → all phones in the store
+               list / str    → subset of phones
+    metric:    'l2' (default) or 'cosine'
+    normalize: divide by mean intra-codebook distance of model_a
     """
     if phones is None or phones == 'all':
         phones = store.phones
@@ -463,7 +473,8 @@ def plot_drift_per_phone(store, model_a, model_b, phones=None,
 
     drift_values = phones_weighted_drift(store, model_a, model_b,
                                           phones=phones, metric=metric)
-    values = [drift_values[p] for p in phones]
+    scale = mean_intra_distance(model_a) if normalize and metric == 'l2' else 1.0
+    values = [drift_values[p] / scale for p in phones]
 
     if ax is None:
         _, ax = plt.subplots(figsize=(max(6, len(phones) * 0.4), 4))
@@ -471,7 +482,9 @@ def plot_drift_per_phone(store, model_a, model_b, phones=None,
     ax.bar(range(len(phones)), values)
     ax.set_xticks(range(len(phones)))
     ax.set_xticklabels(phones, rotation=90, fontsize=7)
-    ax.set_ylabel(f'mean {metric} drift (phone-weighted)')
+    ylabel = ('drift / mean intra-codebook distance' if normalize and metric == 'l2'
+              else f'mean {metric} drift (phone-weighted)')
+    ax.set_ylabel(ylabel)
     step_a = int(model_a.split('-')[-1])
     step_b = int(model_b.split('-')[-1])
     ax.set_title(f'Per-phone codevector {metric} drift: step {step_a} vs {step_b}')

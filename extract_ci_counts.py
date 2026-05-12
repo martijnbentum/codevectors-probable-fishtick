@@ -3,6 +3,7 @@ import phraser_handler
 import frame
 import ci_store
 from progressbar import progressbar
+import json
 
 def handle_model_name(model_name, counts, flatten_ci = True):
     store = load_store(model_name)
@@ -31,6 +32,7 @@ def handle_metadata(metadata, counts, flatten_ci = True):
             continue
         phone_ci= handle_phone(phone, frames, phrase_ci)
         if flatten_ci: phone_ci = flatten(phone_ci) 
+        else: phone_ci = ci_tuples_to_indcies(phone_ci)
         counts.add(metadata.model_name, phone.label, phone_ci)
     if skipped_phones:
         print(f'skipped phones for phrase {phrase}: {skipped_phones}')
@@ -65,10 +67,13 @@ def flatten(items):
 def ci_tuple_to_index(ci_tuple):
     return ci_tuple[0] * 320 + (ci_tuple[1] - 320)
 
+def ci_tuples_to_indcies(ci_tuples):
+    return [ci_tuple_to_index(t) for t in ci_tuples]
+
 def load_phone_labels():
-    with open('../data/phone_labels','r') as fin:
-        labels = fin.read().split('\n')
-    return labels
+    with open('../data/phone_frequency.json','r') as fin:
+        labels = json.load(fin)
+    return list(labels.keys())
 
 def make_counts(model_names = None, phone_labels = None, n_codes = 640, 
     directory = '../ci_stores'):

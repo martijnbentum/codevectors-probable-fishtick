@@ -1,7 +1,8 @@
 import matplotlib.pyplot as plt
 from ci_analysis import (entropy, sort_w2v2_model_names,
                           model_js, model_kl,
-                          codebook_utilization, per_phone_divergence)
+                          codebook_utilization, per_phone_divergence,
+                          phone_vs_rest)
 
 
 def _checkpoint_xticks(models):
@@ -226,6 +227,42 @@ def plot_per_phone_divergence(store, model_a, model_b,
 
 
 # ---------------------------------------------------------------------------
+# Phone-vs-rest divergence trajectory
+# ---------------------------------------------------------------------------
+
+def plot_phone_vs_rest(store, phones=None, models=None, divergence='js',
+                       xlim=(1000, 50000), ax=None):
+    """
+    Plot JS or KL divergence between each phone and the aggregate of all
+    other phones, over training checkpoints.
+
+    phones:     None / 'all'  → one line per phone in the store
+                list / str    → one line per phone in the list
+    divergence: 'js' (default) or 'kl'
+    """
+    models = _sorted_models(store, models)
+
+    if phones is None or phones == 'all':
+        phones = store.phones
+    elif isinstance(phones, str):
+        phones = [phones]
+
+    div_label = 'JS divergence' if divergence == 'js' else 'KL divergence'
+    values_dict = {
+        phone: [phone_vs_rest(store, m, phone, divergence=divergence) for m in models]
+        for phone in phones
+    }
+
+    title = (f'Phone vs rest codebook {div_label} over training'
+             if len(phones) > 1
+             else f'Phone vs rest codebook {div_label} — phone: {phones[0]}')
+
+    return plot_over_checkpoints(
+        models, values_dict, ylabel=div_label, title=title, xlim=xlim, ax=ax
+    )
+
+
+# ---------------------------------------------------------------------------
 # Overview panel
 # ---------------------------------------------------------------------------
 
@@ -247,7 +284,8 @@ def plot_overview(store, models=None):
     ax_r1c2 = fig.add_subplot(gs[0, 1])
     ax_r2c1 = fig.add_subplot(gs[1, 0])
     ax_r2c2 = fig.add_subplot(gs[1, 1])
-    ax_r3   = fig.add_subplot(gs[2, :])
+    ax_r3c1   = fig.add_subplot(gs[2, 0])
+    ax_r3c2   = fig.add_subplot(gs[2, 1])
     ax_r4c1 = fig.add_subplot(gs[3, 0])
     ax_r4c2 = fig.add_subplot(gs[3, 1])
 
@@ -257,19 +295,21 @@ def plot_overview(store, models=None):
                  xlim=(0, 100_000), ax=ax_r1c2)
 
     plot_divergence_trajectory(store, phones=phones_subset, models=models,
-                               reference='last', xlim=(0, 100_000), ax=ax_r2c1)
+        reference='last', xlim=(0, 100_000), ax=ax_r2c1)
     plot_divergence_trajectory(store, phones=None, models=models,
-                               reference='last', xlim=(0, 100_000), ax=ax_r2c2)
+        reference='last', xlim=(0, 100_000), ax=ax_r2c2)
 
     plot_divergence_trajectory(store, phones=phones_subset, models=models,
-                               reference='previous', xlim=(0, 16_000), ax=ax_r3)
+        reference='previous', xlim=(0, 30_000), ax=ax_r3c1)
+    plot_phone_vs_rest(store, phones=phones_subset, models=models,
+        xlim=(0,30_000), ax=ax_r3c2)
 
     plot_utilization(store, phones=phones_subset, models=models,
-                     xlim=(0, 30_000), ax=ax_r4c1, min_count = 100)
+        xlim=(0, 30_000), ax=ax_r4c1, min_count = 100)
     plot_utilization(store, phones=None, models=models,
-                     xlim=(0, 100_000), ax=ax_r4c2, min_count = 100)
-
-    for ax in [ax_r1c1, ax_r1c2, ax_r2c1, ax_r2c2, ax_r3, ax_r4c1, ax_r4c2]:
+        xlim=(0, 100_000), ax=ax_r4c2, min_count = 100)
+    axs=[ax_r1c1, ax_r1c2, ax_r2c1, ax_r2c2, ax_r3c1, ax_r3c2, ax_r4c1, ax_r4c2]
+    for ax in axs:
         ax.grid(alpha=0.3)
 
     return fig

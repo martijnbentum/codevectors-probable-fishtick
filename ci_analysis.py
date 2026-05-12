@@ -155,6 +155,56 @@ def per_phone_divergence(store, model_a, model_b, divergence='js', smoothing=1e-
 
 
 # ---------------------------------------------------------------------------
+# Phone-vs-phone divergence
+# ---------------------------------------------------------------------------
+
+def phone_divergence(store, model, phone1, phone2, divergence='js', smoothing=1e-10):
+    """
+    Divergence between two phones for a given model.
+
+    Compares P(code | model, phone1) against P(code | model, phone2).
+    divergence: 'js' (symmetric) or 'kl' (KL(phone1 || phone2))
+    """
+    fn = js_divergence if divergence == 'js' else kl_divergence
+    p = ci_pdf_for_model_phone(store, model, phone1, smoothing)
+    q = ci_pdf_for_model_phone(store, model, phone2, smoothing)
+    return fn(p, q)
+
+
+def phone_vs_all_phones(store, model, phone, divergence='js', smoothing=1e-10):
+    """
+    Divergence between one phone and every other phone for a given model.
+
+    Returns dict {other_phone: divergence_value}.
+    """
+    return {
+        q_phone: phone_divergence(store, model, phone, q_phone, divergence, smoothing)
+        for q_phone in store.phones
+        if q_phone != phone
+    }
+
+
+def phone_vs_rest(store, model, phone, divergence='js', smoothing=1e-10):
+    """
+    Divergence between one phone and the aggregate of all other phones.
+
+    Compares P(code | model, phone) against the distribution derived from
+    summing CI counts over all other phones.
+    divergence: 'js' (symmetric) or 'kl' (KL(phone || rest))
+    """
+    fn = js_divergence if divergence == 'js' else kl_divergence
+    p = ci_pdf_for_model_phone(store, model, phone, smoothing)
+    other_counts = sum(
+        store.get(model=model, phone=q).astype(float)
+        for q in store.phones
+        if q != phone
+    )
+    other_counts += smoothing
+    q = other_counts / other_counts.sum()
+    return fn(p, q)
+
+
+# ---------------------------------------------------------------------------
 # Codebook utilization
 # ---------------------------------------------------------------------------
 

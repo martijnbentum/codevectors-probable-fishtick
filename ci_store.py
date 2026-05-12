@@ -96,17 +96,5 @@ class CIStore:
             raise ValueError(m)
 
 
-def entropy(counts, base=2):
-    '''Compute entropy from counts.
-    counts:             iterable of non-negative counts
-    base:               logarithm base (default bits)
-    '''
-    total = counts.sum()
-    if total == 0: return 0.0
-    p = counts[counts > 0] / total
-    return -(p * np.log(p) / np.log(base)).sum()
 
-def sort_w2v2_model_names(model_names):
-    '''Sort model names by training checkpoint.'''
-    return sorted(model_names, key=lambda n: int(n.split('-')[-1]))
         

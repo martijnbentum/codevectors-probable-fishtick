@@ -4,32 +4,6 @@ import frame
 import ci_store
 from progressbar import progressbar
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
-
-def handle_model_names_parallel(model_names, phone_labels = None, n_codes = 640, 
-    flatten_ci = True, max_workers = None):
-    if phone_labels is None: phone_labels = load_phone_labels()
-    model_names = list(model_names)
-    if len(model_names) != len(set(model_names)):
-        dup = set([x for x in model_names if model_names.count(x) > 1])
-        raise ValueError(f'duplicate model names: {dup}')
-    counts = make_counts(model_names, phone_labels, n_codes)
-    error = {'worker_errors': []}
-    with ProcessPoolExecutor(max_workers = max_workers) as executor:
-        futures = []
-        for m in model_names:
-            o = executor.submit(_handle_model_name_count, m, 
-                phone_labels, n_codes, flatten_ci)
-            futures.append(o)
-        for future in as_completed(futures):
-            try:
-                model_name, model_counts, model_error = future.result()
-                counts.counts[counts._model_idx[model_name]] = model_counts
-                error[model_name] = model_error
-            except Exception as e:
-                error['worker_errors'].append((str(e),))
-    return counts, error
-
 def handle_model_name(model_name, counts, flatten_ci = True):
     store = load_store(model_name)
     print(f'handling model {model_name}')
@@ -93,13 +67,8 @@ def load_phone_labels():
         labels = fin.read().split('\n')
     return labels
 
-def make_counts(model_names = None, phone_labels = None, n_codes = 640):
-    return ci_store.CIStore(model_names, phone_labels, n_codes)
+def make_counts(model_names = None, phone_labels = None, n_codes = 640, 
+    directory = '../ci_stores'):
+    return ci_store.CIStore(model_names, phone_labels, n_codes, directory)
 
-def _handle_model_name_count(model_name, phone_labels, 
-    n_codes = 640, flatten_ci = True):
-    counts = make_counts([model_name], phone_labels, n_codes)
-    error = handle_model_name(model_name, counts, flatten_ci)
-    error = [(str(metadata), message) for metadata, message in error]
-    return model_name, counts.counts[0], error
 

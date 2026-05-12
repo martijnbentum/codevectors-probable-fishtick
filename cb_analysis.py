@@ -73,9 +73,13 @@ def mean_drift(model_a, model_b, metric='l2'):
 def drift_trajectory(models, reference='first', metric='l2'):
     """Mean codevector drift vs a reference checkpoint at each training step.
 
-    reference: 'first', 'last', or a model name
+    reference: 'first', 'last', 'previous', or a model name
     Returns (values, models) — parallel arrays.
     """
+    if reference == 'previous':
+        values = [0.0] + [mean_drift(a, b, metric=metric)
+                          for a, b in zip(models[:-1], models[1:])]
+        return np.array(values), list(models)
     if reference == 'first':
         ref = models[0]
     elif reference == 'last':
@@ -157,10 +161,15 @@ def phone_weighted_drift_trajectory(store, models=None, reference='first',
                                      phone=None, metric='l2'):
     """Phone-weighted drift vs reference at each training step.
 
+    reference: 'first', 'last', 'previous', or a model name
     Returns (values, models) — parallel arrays.
     """
     if models is None:
         models = sort_w2v2_model_names(store.models)
+    if reference == 'previous':
+        values = [0.0] + [phone_weighted_drift(store, a, b, phone=phone, metric=metric)
+                          for a, b in zip(models[:-1], models[1:])]
+        return np.array(values), list(models)
     if reference == 'first':
         ref = models[0]
     elif reference == 'last':

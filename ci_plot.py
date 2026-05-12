@@ -5,6 +5,8 @@ from ci_analysis import (entropy, sort_w2v2_model_names,
                           codebook_utilization, per_phone_divergence,
                           phone_vs_rest,
                           top_k_stability_trajectory, top_k_rank_matrix)
+from cb_analysis import (drift_trajectory, phones_weighted_drift,
+                          phone_weighted_drift_trajectory)
 
 
 def _checkpoint_xticks(models):
@@ -363,6 +365,116 @@ def plot_top_k_rank_heatmap(store, phone, models=None, k=10,
         except (ValueError, IndexError):
             ref_desc = reference
     ax.set_title(f'Top-{k} code ranks over training — phone: {phone} (sorted by {ref_desc})')
+    ax.figure.tight_layout()
+    return ax
+
+
+# ---------------------------------------------------------------------------
+# Codevector drift trajectory
+# ---------------------------------------------------------------------------
+
+def plot_drift_trajectory(models, reference='first', metric='l2',
+                           xlim=(1000, 50000), ax=None):
+    """
+    Plot mean codevector drift vs a reference checkpoint over training.
+
+    Purely geometric — no store needed.
+    models:     ordered list of checkpoint names
+    reference:  'first', 'last', or a model name
+    metric:     'l2' (default) or 'cosine'
+    """
+    values, _ = drift_trajectory(models, reference=reference, metric=metric)
+
+    if reference == 'first':
+        ref_desc = f'step {_checkpoint_xticks(models)[0]}'
+    elif reference == 'last':
+        ref_desc = f'step {_checkpoint_xticks(models)[-1]}'
+    else:
+        try:
+            ref_desc = f'step {int(reference.split("-")[-1])}'
+        except (ValueError, IndexError):
+            ref_desc = reference
+
+    ylabel = f'mean {metric} drift'
+    title = f'Codevector drift from {ref_desc}'
+    return plot_over_checkpoints(
+        models, {'mean drift': values}, ylabel=ylabel, title=title,
+        show_legend=False, xlim=xlim, ax=ax
+    )
+
+
+def plot_phone_drift_trajectory(store, phones=None, models=None,
+                                  reference='first', metric='l2',
+                                  xlim=(1000, 50000), ax=None):
+    """
+    Plot phone-weighted codevector drift vs a reference checkpoint over training.
+
+    phones:     None / 'all'  → one line per phone in the store
+                list / str    → one line per phone in the list
+    reference:  'first', 'last', or a model name
+    metric:     'l2' (default) or 'cosine'
+    """
+    models = _sorted_models(store, models)
+
+    if phones is None or phones == 'all':
+        phones = store.phones
+    elif isinstance(phones, str):
+        phones = [phones]
+
+    if reference == 'first':
+        ref_desc = f'step {_checkpoint_xticks(models)[0]}'
+    elif reference == 'last':
+        ref_desc = f'step {_checkpoint_xticks(models)[-1]}'
+    else:
+        try:
+            ref_desc = f'step {int(reference.split("-")[-1])}'
+        except (ValueError, IndexError):
+            ref_desc = reference
+
+    values_dict = {
+        p: phone_weighted_drift_trajectory(store, models=models, reference=reference,
+                                            phone=p, metric=metric)[0]
+        for p in phones
+    }
+
+    ylabel = f'mean {metric} drift (phone-weighted)'
+    title = (f'Phone-weighted codevector drift from {ref_desc} — phone: {phones[0]}'
+             if len(phones) == 1
+             else f'Phone-weighted codevector drift from {ref_desc} per phone')
+
+    return plot_over_checkpoints(
+        models, values_dict, ylabel=ylabel, title=title, xlim=xlim, ax=ax
+    )
+
+
+def plot_drift_per_phone(store, model_a, model_b, phones=None,
+                          metric='l2', ax=None):
+    """
+    Bar chart of phone-weighted codevector drift per phone between two checkpoints.
+
+    phones:   None / 'all'  → all phones in the store
+              list / str    → subset of phones
+    metric:   'l2' (default) or 'cosine'
+    """
+    if phones is None or phones == 'all':
+        phones = store.phones
+    elif isinstance(phones, str):
+        phones = [phones]
+
+    drift_values = phones_weighted_drift(store, model_a, model_b,
+                                          phones=phones, metric=metric)
+    values = [drift_values[p] for p in phones]
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(max(6, len(phones) * 0.4), 4))
+
+    ax.bar(range(len(phones)), values)
+    ax.set_xticks(range(len(phones)))
+    ax.set_xticklabels(phones, rotation=90, fontsize=7)
+    ax.set_ylabel(f'mean {metric} drift (phone-weighted)')
+    step_a = int(model_a.split('-')[-1])
+    step_b = int(model_b.split('-')[-1])
+    ax.set_title(f'Per-phone codevector {metric} drift: step {step_a} vs {step_b}')
     ax.figure.tight_layout()
     return ax
 

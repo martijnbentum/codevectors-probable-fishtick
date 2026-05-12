@@ -246,3 +246,78 @@ def top_codes(store, model, phone=None, k=10):
         counts = store.get(model=model).sum(axis=0)
     indices = np.argsort(counts)[::-1][:k]
     return indices, counts[indices]
+
+
+def top_k_jaccard(store, model_a, model_b, phone=None, k=10):
+    """
+    Jaccard similarity between the top-k code sets of two models.
+
+    Pass phone to restrict to one phone; omit to collapse over all phones.
+    Returns a value in [0, 1] where 1 means identical top-k sets.
+    """
+    set_a = set(top_codes(store, model_a, phone=phone, k=k)[0].tolist())
+    set_b = set(top_codes(store, model_b, phone=phone, k=k)[0].tolist())
+    if not set_a and not set_b:
+        return 1.0
+    return len(set_a & set_b) / len(set_a | set_b)
+
+
+def top_k_stability_trajectory(store, models=None, phone=None,
+                                reference='first', k=10):
+    """
+    Jaccard similarity of the top-k code set vs a reference checkpoint
+    at each training step.
+
+    reference:  'first', 'last', or a model name
+    Returns (values, models) — parallel arrays.
+    """
+    if models is None:
+        models = sort_w2v2_model_names(store.models)
+    if reference == 'first':
+        ref = models[0]
+    elif reference == 'last':
+        ref = models[-1]
+    else:
+        ref = reference
+    values = [top_k_jaccard(store, ref, m, phone=phone, k=k) for m in models]
+    return np.array(values), list(models)
+
+
+def top_k_rank_matrix(store, phone, models=None, k=10, reference='last'):
+    """
+    Rank matrix for the top-k codes over training checkpoints.
+
+    Rows are the union of top-k code indices seen across all checkpoints,
+    sorted by rank in the reference checkpoint (rank 1 first; codes absent
+    from the reference sort to the bottom by mean rank).
+    Columns are ordered checkpoints.
+    Values are 1-based ranks; entries outside the top-k are NaN.
+
+    reference:  'first', 'last', or a model name
+    Returns (matrix, code_indices, models).
+    """
+    if models is None:
+        models = sort_w2v2_model_names(store.models)
+    if reference == 'first':
+        ref = models[0]
+    elif reference == 'last':
+        ref = models[-1]
+    else:
+        ref = reference
+    model_ranks = {
+        m: {int(idx): rank + 1
+            for rank, idx in enumerate(top_codes(store, m, phone=phone, k=k)[0])}
+        for m in models
+    }
+    all_indices = sorted({idx for ranks in model_ranks.values() for idx in ranks})
+    matrix = np.full((len(all_indices), len(models)), np.nan)
+    for j, m in enumerate(models):
+        for i, idx in enumerate(all_indices):
+            if idx in model_ranks[m]:
+                matrix[i, j] = model_ranks[m][idx]
+    ref_col = models.index(ref)
+    ref_ranks = matrix[:, ref_col]
+    fallback = np.nanmean(matrix, axis=1)
+    sort_key = np.where(np.isnan(ref_ranks), fallback + k, ref_ranks)
+    order = np.argsort(sort_key)
+    return matrix[order], [all_indices[i] for i in order], list(models)

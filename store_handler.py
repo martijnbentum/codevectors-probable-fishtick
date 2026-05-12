@@ -2,6 +2,7 @@ import json
 from echoframe import store
 from echoframe import batch_codebook_indices as bci
 from progressbar import progressbar
+from ci_analysis import sort_w2v2_model_names
 
 import locations
 
@@ -17,6 +18,7 @@ def wav2vec2_v1_model_names():
     for line in d:
         if 'wav2vec2_nl1' in line['model_name']:
             names.append(line['model_name'])
+    names = sort_w2v2_model_names(names)
     return names
 
 def make_or_load_store(model_name):

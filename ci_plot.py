@@ -378,10 +378,14 @@ def _ref_model(models, reference):
         return models[0]
     if reference == 'last':
         return models[-1]
+    if reference == 'previous':
+        return models[0]  # use first checkpoint as normalization scale
     return reference
 
 
 def _ref_desc(models, reference):
+    if reference == 'previous':
+        return 'previous checkpoint'
     ref = _ref_model(models, reference)
     try:
         return f'step {int(ref.split("-")[-1])}'

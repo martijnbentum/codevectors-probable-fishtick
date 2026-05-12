@@ -7,7 +7,7 @@ import json
 
 def handle_model_name(model_name, counts, flatten_ci = True):
     store = load_store(model_name)
-    print(f'handling model {model_name}')
+    print(f'handling {model_name}\n{counts!r}\nflatten_ci {flatten_ci}')
     error = []
     for metadata in progressbar(store.metadatas):
         try: handle_metadata(metadata, counts, flatten_ci)

@@ -62,6 +62,9 @@ def flatten(items):
     '''
     return [x for sublist in items for x in sublist]
 
+def ci_tuple_to_index(ci_tuple):
+    return ci_tuple[0] * 320 + (ci_tuple[1] - 320)
+
 def load_phone_labels():
     with open('../data/phone_labels','r') as fin:
         labels = fin.read().split('\n')

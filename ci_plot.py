@@ -265,9 +265,9 @@ def plot_overview(store, models=None):
                                reference='previous', xlim=(0, 16_000), ax=ax_r3)
 
     plot_utilization(store, phones=phones_subset, models=models,
-                     xlim=(0, 30_000), ax=ax_r4c1)
+                     xlim=(0, 30_000), ax=ax_r4c1, min_count = 100)
     plot_utilization(store, phones=None, models=models,
-                     xlim=(0, 100_000), ax=ax_r4c2)
+                     xlim=(0, 100_000), ax=ax_r4c2, min_count = 100)
 
     for ax in [ax_r1c1, ax_r1c2, ax_r2c1, ax_r2c2, ax_r3, ax_r4c1, ax_r4c2]:
         ax.grid(alpha=0.3)

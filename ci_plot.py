@@ -1,8 +1,10 @@
+import numpy as np
 import matplotlib.pyplot as plt
 from ci_analysis import (entropy, sort_w2v2_model_names,
                           model_js, model_kl,
                           codebook_utilization, per_phone_divergence,
-                          phone_vs_rest)
+                          phone_vs_rest,
+                          top_k_stability_trajectory, top_k_rank_matrix)
 
 
 def _checkpoint_xticks(models):
@@ -260,6 +262,109 @@ def plot_phone_vs_rest(store, phones=None, models=None, divergence='js',
     return plot_over_checkpoints(
         models, values_dict, ylabel=div_label, title=title, xlim=xlim, ax=ax
     )
+
+
+# ---------------------------------------------------------------------------
+# Top-k code stability trajectory
+# ---------------------------------------------------------------------------
+
+def plot_top_k_stability(store, phones=None, models=None, reference='first',
+                          k=10, xlim=(1000, 50000), ax=None):
+    """
+    Plot Jaccard similarity of top-k codes vs a reference checkpoint over training.
+
+    phones:     None        → model-level (phones summed)
+                'all'       → one line per phone
+                list/str    → one line per phone in the list
+    reference:  'first', 'last', or a model name
+    k:          number of top codes to compare
+    """
+    models = _sorted_models(store, models)
+
+    if reference == 'first':
+        ref_desc = f'step {_checkpoint_xticks(models)[0]}'
+    elif reference == 'last':
+        ref_desc = f'step {_checkpoint_xticks(models)[-1]}'
+    else:
+        try:
+            ref_desc = f'step {int(reference.split("-")[-1])}'
+        except (ValueError, IndexError):
+            ref_desc = reference
+
+    if phones is None:
+        values, _ = top_k_stability_trajectory(store, models=models, phone=None,
+                                                reference=reference, k=k)
+        values_dict = {'all phones combined': values}
+        title = f'Top-{k} code stability from {ref_desc}'
+    else:
+        if phones == 'all':
+            phones = store.phones
+        elif isinstance(phones, str):
+            phones = [phones]
+        values_dict = {
+            phone: top_k_stability_trajectory(store, models=models, phone=phone,
+                                               reference=reference, k=k)[0]
+            for phone in phones
+        }
+        title = (f'Top-{k} code stability from {ref_desc} — phone: {phones[0]}'
+                 if len(phones) == 1
+                 else f'Top-{k} code stability from {ref_desc} per phone')
+
+    return plot_over_checkpoints(
+        models, values_dict, ylabel='Jaccard similarity', title=title,
+        xlim=xlim, ax=ax
+    )
+
+
+# ---------------------------------------------------------------------------
+# Top-k code rank heatmap
+# ---------------------------------------------------------------------------
+
+def plot_top_k_rank_heatmap(store, phone, models=None, k=10,
+                             reference='last', ax=None):
+    """
+    Heatmap of top-k code ranks over training checkpoints for a single phone.
+
+    Rows are code indices (union of top-k across all checkpoints), sorted by
+    rank in the reference checkpoint. Columns are checkpoints. Color encodes
+    rank (1=top); grey cells were outside the top-k at that checkpoint.
+
+    reference:  'first', 'last', or a model name
+    """
+    models = _sorted_models(store, models)
+    matrix, code_indices, models = top_k_rank_matrix(store, phone, models=models,
+                                                      k=k, reference=reference)
+
+    n_codes, n_models = matrix.shape
+    if ax is None:
+        _, ax = plt.subplots(figsize=(max(8, n_models * 0.35),
+                                      max(4, n_codes * 0.4)))
+
+    masked = np.ma.array(matrix, mask=np.isnan(matrix))
+    cmap = plt.get_cmap('viridis_r').copy()
+    cmap.set_bad(color='lightgrey')
+
+    im = ax.imshow(masked, aspect='auto', cmap=cmap, vmin=1, vmax=k,
+                   interpolation='none')
+    plt.colorbar(im, ax=ax, label=f'rank within top-{k}')
+
+    x_labels = _checkpoint_xticks(models)
+    ax.set_xticks(range(n_models))
+    ax.set_xticklabels(x_labels, rotation=90, fontsize=7)
+    ax.set_yticks(range(n_codes))
+    ax.set_yticklabels(code_indices, fontsize=7)
+    ax.set_xlabel('training step')
+    ax.set_ylabel('code index')
+    if reference in ('first', 'last'):
+        ref_desc = reference
+    else:
+        try:
+            ref_desc = f'step {int(reference.split("-")[-1])}'
+        except (ValueError, IndexError):
+            ref_desc = reference
+    ax.set_title(f'Top-{k} code ranks over training — phone: {phone} (sorted by {ref_desc})')
+    ax.figure.tight_layout()
+    return ax
 
 
 # ---------------------------------------------------------------------------

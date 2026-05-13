@@ -212,3 +212,94 @@ def phones_weighted_drift_trajectory(store, models=None, reference='first',
                                            phone=p, metric=metric)
         for p in phones
     }
+
+
+# ---------------------------------------------------------------------------
+# Drift × usage correlation
+# ---------------------------------------------------------------------------
+
+def _pearson(x, y):
+    return float(np.corrcoef(x, y)[0, 1])
+
+
+def _spearman(x, y):
+    rx = np.argsort(np.argsort(x)).astype(float)
+    ry = np.argsort(np.argsort(y)).astype(float)
+    return float(np.corrcoef(rx, ry)[0, 1])
+
+
+def drift_usage_vectors(store, model_a, model_b, metric='l2', phone=None):
+    """Per-codevector drift and usage count arrays.
+
+    phone: restrict usage to one phone; None uses all phones combined.
+    Returns (drift, usage) — parallel float arrays of length n_codes.
+    """
+    drift = _drift_fn(metric)(model_a, model_b)
+    if phone is not None:
+        usage = store.get(model=model_a, phone=phone).astype(float)
+    else:
+        usage = store.get(model=model_a).sum(axis=0).astype(float)
+    return drift, usage
+
+
+def drift_usage_correlation(store, model_a, model_b, metric='l2', phone=None):
+    """Pearson and Spearman correlation between per-codevector drift and usage.
+
+    Usage is measured in model_a (the source checkpoint).
+    phone: restrict usage to one phone; None uses all phones combined.
+    Returns dict with keys 'drift', 'usage', 'pearson', 'spearman'.
+    """
+    drift, usage = drift_usage_vectors(store, model_a, model_b,
+                                       metric=metric, phone=phone)
+    return {
+        'drift': drift,
+        'usage': usage,
+        'pearson': _pearson(drift, usage),
+        'spearman': _spearman(drift, usage),
+    }
+
+
+def drift_usage_correlation_trajectory(store, models=None, reference='first',
+                                        metric='l2', phone=None):
+    """Pearson and Spearman r between drift and usage at each training step.
+
+    reference: 'first', 'last', 'previous', or a model name.
+    phone:     restrict usage to one phone; None uses all phones combined.
+    Returns dict with keys 'pearson', 'spearman', 'models' — parallel arrays.
+    """
+    if models is None:
+        models = sort_w2v2_model_names(store.models)
+    if not models:
+        raise ValueError("models list is empty")
+
+    if reference == 'previous':
+        pairs = list(zip(models[:-1], models[1:]))
+        pearson = [float('nan')] + [
+            drift_usage_correlation(store, a, b, metric=metric, phone=phone)['pearson']
+            for a, b in pairs
+        ]
+        spearman = [float('nan')] + [
+            drift_usage_correlation(store, a, b, metric=metric, phone=phone)['spearman']
+            for a, b in pairs
+        ]
+    else:
+        if reference == 'first':
+            ref = models[0]
+        elif reference == 'last':
+            ref = models[-1]
+        else:
+            ref = reference
+            if ref not in models:
+                raise ValueError(
+                    f"reference {ref!r} is not in models; available: {list(models)}"
+                )
+        results = [drift_usage_correlation(store, ref, m, metric=metric, phone=phone)
+                   for m in models]
+        pearson = [r['pearson'] for r in results]
+        spearman = [r['spearman'] for r in results]
+
+    return {
+        'pearson': np.array(pearson),
+        'spearman': np.array(spearman),
+        'models': list(models),
+    }

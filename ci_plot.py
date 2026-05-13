@@ -6,7 +6,8 @@ from ci_analysis import (entropy, sort_w2v2_model_names,
                           phone_vs_rest,
                           top_k_stability_trajectory, top_k_rank_matrix)
 from cb_analysis import (drift_trajectory, phones_weighted_drift,
-                          phone_weighted_drift_trajectory, mean_intra_distance)
+                          phone_weighted_drift_trajectory, mean_intra_distance,
+                          drift_usage_correlation, drift_usage_correlation_trajectory)
 
 
 def _checkpoint_xticks(models):
@@ -547,3 +548,85 @@ def plot_overview(store, models=None):
         ax.grid(alpha=0.3)
 
     return fig
+
+
+# ---------------------------------------------------------------------------
+# Drift × usage correlation
+# ---------------------------------------------------------------------------
+
+def plot_drift_usage_scatter(store, model_a, model_b, metric='l2', phone=None,
+                              log_usage=True, ax=None):
+    """
+    Scatter plot of per-codevector drift vs usage frequency.
+
+    Each point is one codevector. X-axis: usage count in model_a (source).
+    Y-axis: drift from model_a to model_b. Annotated with Pearson and Spearman r.
+
+    log_usage:  plot usage on a log(1+x) scale (default True; counts are skewed)
+    phone:      restrict usage to one phone; None uses all phones combined
+    metric:     'l2' (default) or 'cosine'
+    """
+    result = drift_usage_correlation(store, model_a, model_b,
+                                     metric=metric, phone=phone)
+    drift, usage = result['drift'], result['usage']
+    pearson, spearman = result['pearson'], result['spearman']
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 5))
+
+    x = np.log1p(usage) if log_usage else usage
+    ax.scatter(x, drift, s=8, alpha=0.5, linewidths=0)
+
+    ax.set_xlabel('log(1 + usage count)' if log_usage else 'usage count')
+    ax.set_ylabel(f'{metric} drift')
+
+    step_a = model_a.split('-')[-1]
+    step_b = model_b.split('-')[-1]
+    phone_desc = f' — phone: {phone}' if phone else ''
+    ax.set_title(f'Drift vs usage: step {step_a} → {step_b}{phone_desc}')
+
+    ax.text(0.97, 0.97,
+            f'Pearson r = {pearson:.3f}\nSpearman r = {spearman:.3f}',
+            transform=ax.transAxes, ha='right', va='top', fontsize=9,
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+    ax.grid(alpha=0.3)
+    ax.figure.tight_layout()
+    return ax
+
+
+def plot_drift_usage_correlation_trajectory(store, models=None, reference='first',
+                                             metric='l2', phone=None,
+                                             xlim=(1000, 50000), ax=None):
+    """
+    Plot Pearson and Spearman r between per-codevector drift and usage over training.
+
+    reference:  'first', 'last', 'previous', or a model name
+    phone:      restrict usage to one phone; None uses all phones combined
+    metric:     'l2' (default) or 'cosine'
+    """
+    models = _sorted_models(store, models)
+    result = drift_usage_correlation_trajectory(store, models=models,
+                                                reference=reference,
+                                                metric=metric, phone=phone)
+    x = _checkpoint_xticks(models)
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(10, 4))
+
+    ax.plot(x, result['pearson'],  marker='o', markersize=3, label='Pearson r')
+    ax.plot(x, result['spearman'], marker='o', markersize=3, label='Spearman r')
+    ax.axhline(0, color='grey', linewidth=0.8, linestyle='--')
+
+    ax.set_xlabel('training step')
+    ax.set_ylabel('correlation (r)')
+    if xlim is not None:
+        ax.set_xlim(xlim)
+
+    phone_desc = f' — phone: {phone}' if phone else ''
+    ref_desc = reference if reference in ('first', 'last', 'previous') else reference.split('-')[-1]
+    ax.set_title(f'Drift–usage correlation over training '
+                 f'(ref: {ref_desc}, metric: {metric}){phone_desc}')
+    ax.legend(fontsize=8)
+    ax.grid(alpha=0.3)
+    ax.figure.tight_layout()
+    return ax

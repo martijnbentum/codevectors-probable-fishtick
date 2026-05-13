@@ -1,14 +1,36 @@
 import numpy as np
 
+_VALID_DIVERGENCES = ('js', 'kl')
+
+def _divergence_fn(divergence, scalar=False):
+    """Return the divergence function for 'js' or 'kl'; raise ValueError otherwise."""
+    if divergence == 'js':
+        return model_js if not scalar else js_divergence
+    if divergence == 'kl':
+        return model_kl if not scalar else kl_divergence
+    raise ValueError(
+        f"divergence={divergence!r} is not valid; choose one of {_VALID_DIVERGENCES}"
+    )
+
 def sort_w2v2_model_names(model_names):
-    '''Sort model names by training checkpoint.'''
-    return sorted(model_names, key=lambda n: int(n.split('-')[-1]))
+    '''Sort model names by training checkpoint; non-checkpoint names sort last, alphabetically.'''
+    def _key(n):
+        try:
+            return (0, int(n.split('-')[-1]), n)
+        except ValueError:
+            return (1, 0, n)
+    return sorted(model_names, key=_key)
 
 def entropy(counts, base=2):
     '''Compute entropy from counts.
     counts:             iterable of non-negative counts
     base:               logarithm base (default bits)
     '''
+    if base <= 0 or base == 1:
+        raise ValueError(f"base must be > 0 and != 1; got {base}")
+    counts = np.asarray(counts, dtype=float)
+    if np.any(counts < 0):
+        raise ValueError("counts must be non-negative")
     total = counts.sum()
     if total == 0: return 0.0
     p = counts[counts > 0] / total
@@ -21,13 +43,19 @@ def entropy(counts, base=2):
 
 def ci_pdf_for_model_phone(store, model, phone, smoothing=1e-10):
     """P(code | model, phone) as a normalized array of length n_codes."""
-    counts = store.get(model=model, phone=phone).astype(float) + smoothing
+    counts = store.get(model=model, phone=phone).astype(float)
+    if counts.sum() == 0:
+        raise ValueError(f"no counts for model={model!r}, phone={phone!r}")
+    counts += smoothing
     return counts / counts.sum()
 
 
 def ci_pdf_for_model(store, model, smoothing=1e-10):
     """P(code | model) collapsed over all phones."""
-    counts = store.get(model=model).sum(axis=0).astype(float) + smoothing
+    counts = store.get(model=model).sum(axis=0).astype(float)
+    if counts.sum() == 0:
+        raise ValueError(f"no counts for model={model!r}")
+    counts += smoothing
     return counts / counts.sum()
 
 
@@ -49,7 +77,8 @@ def kl_divergence(p, q):
 
 def js_divergence(p, q):
     """Jensen-Shannon divergence in bits (symmetric, range [0, 1])."""
-    m = 0.5 * (np.asarray(p) + np.asarray(q))
+    p, q = np.asarray(p, dtype=float), np.asarray(q, dtype=float)
+    m = 0.5 * (p + q)
     return 0.5 * kl_divergence(p, m) + 0.5 * kl_divergence(q, m)
 
 
@@ -92,7 +121,7 @@ def pairwise_divergence_matrix(store, models=None, phone=None,
     Returns (matrix, models) where models is the ordered list used.
     """
     if models is None:
-        models = store.models
+        models = sort_w2v2_model_names(store.models)
     n = len(models)
 
     if phone is not None:
@@ -100,7 +129,7 @@ def pairwise_divergence_matrix(store, models=None, phone=None,
     else:
         dists = {m: ci_pdf_for_model(store, m, smoothing) for m in models}
 
-    fn = js_divergence if divergence == 'js' else kl_divergence
+    fn = _divergence_fn(divergence, scalar=True)
     mat = np.zeros((n, n))
     for i, mi in enumerate(models):
         for j, mj in enumerate(models):
@@ -126,6 +155,8 @@ def training_trajectory(store, models=None, reference='first', phone=None,
     """
     if models is None:
         models = sort_w2v2_model_names(store.models)
+    if not models:
+        raise ValueError("models list is empty")
 
     if reference == 'first':
         ref = models[0]
@@ -133,8 +164,10 @@ def training_trajectory(store, models=None, reference='first', phone=None,
         ref = models[-1]
     else:
         ref = reference
+        if ref not in models:
+            raise ValueError(f"reference {ref!r} is not in models; available: {list(models)}")
 
-    fn = model_js if divergence == 'js' else model_kl
+    fn = _divergence_fn(divergence)
     values = [fn(store, ref, m, phone=phone, smoothing=smoothing) for m in models]
     return np.array(values), list(models)
 
@@ -149,7 +182,7 @@ def per_phone_divergence(store, model_a, model_b, divergence='js', smoothing=1e-
 
     Returns dict {phone: divergence_value}.
     """
-    fn = model_js if divergence == 'js' else model_kl
+    fn = _divergence_fn(divergence)
     return {p: fn(store, model_a, model_b, phone=p, smoothing=smoothing)
             for p in store.phones}
 
@@ -165,7 +198,7 @@ def phone_divergence(store, model, phone1, phone2, divergence='js', smoothing=1e
     Compares P(code | model, phone1) against P(code | model, phone2).
     divergence: 'js' (symmetric) or 'kl' (KL(phone1 || phone2))
     """
-    fn = js_divergence if divergence == 'js' else kl_divergence
+    fn = _divergence_fn(divergence, scalar=True)
     p = ci_pdf_for_model_phone(store, model, phone1, smoothing)
     q = ci_pdf_for_model_phone(store, model, phone2, smoothing)
     return fn(p, q)
@@ -192,13 +225,21 @@ def phone_vs_rest(store, model, phone, divergence='js', smoothing=1e-10):
     summing CI counts over all other phones.
     divergence: 'js' (symmetric) or 'kl' (KL(phone || rest))
     """
-    fn = js_divergence if divergence == 'js' else kl_divergence
+    other_phones = [q for q in store.phones if q != phone]
+    if not other_phones:
+        raise ValueError(
+            f"phone_vs_rest requires at least two phones in the store; "
+            f"only {phone!r} is present"
+        )
+    fn = _divergence_fn(divergence, scalar=True)
     p = ci_pdf_for_model_phone(store, model, phone, smoothing)
-    other_counts = sum(
-        store.get(model=model, phone=q).astype(float)
-        for q in store.phones
-        if q != phone
+    other_counts = np.add.reduce(
+        [store.get(model=model, phone=q).astype(float) for q in other_phones]
     )
+    if other_counts.sum() == 0:
+        raise ValueError(
+            f"no counts for model={model!r} across phones other than {phone!r}"
+        )
     other_counts += smoothing
     q = other_counts / other_counts.sum()
     return fn(p, q)
@@ -214,6 +255,8 @@ def codebook_utilization(store, model, phone=None, min_count=1):
 
     Pass phone to restrict to one phone; omit to collapse over all phones.
     """
+    if min_count < 1:
+        raise ValueError(f"min_count must be >= 1; got {min_count}")
     if phone is not None:
         counts = store.get(model=model, phone=phone)
     else:
@@ -240,6 +283,8 @@ def top_codes(store, model, phone=None, k=10):
 
     Pass phone to restrict to one phone; omit to collapse over all phones.
     """
+    if k < 1 or k > store.n_codes:
+        raise ValueError(f"k must be between 1 and {store.n_codes}; got {k}")
     if phone is not None:
         counts = store.get(model=model, phone=phone)
     else:
@@ -257,8 +302,6 @@ def top_k_jaccard(store, model_a, model_b, phone=None, k=10):
     """
     set_a = set(top_codes(store, model_a, phone=phone, k=k)[0].tolist())
     set_b = set(top_codes(store, model_b, phone=phone, k=k)[0].tolist())
-    if not set_a and not set_b:
-        return 1.0
     return len(set_a & set_b) / len(set_a | set_b)
 
 
@@ -273,12 +316,16 @@ def top_k_stability_trajectory(store, models=None, phone=None,
     """
     if models is None:
         models = sort_w2v2_model_names(store.models)
+    if not models:
+        raise ValueError("models list is empty")
     if reference == 'first':
         ref = models[0]
     elif reference == 'last':
         ref = models[-1]
     else:
         ref = reference
+        if ref not in models:
+            raise ValueError(f"reference {ref!r} is not in models; available: {list(models)}")
     values = [top_k_jaccard(store, ref, m, phone=phone, k=k) for m in models]
     return np.array(values), list(models)
 
@@ -298,12 +345,16 @@ def top_k_rank_matrix(store, phone, models=None, k=10, reference='last'):
     """
     if models is None:
         models = sort_w2v2_model_names(store.models)
+    if not models:
+        raise ValueError("models list is empty")
     if reference == 'first':
         ref = models[0]
     elif reference == 'last':
         ref = models[-1]
     else:
         ref = reference
+        if ref not in models:
+            raise ValueError(f"reference {ref!r} is not in models; available: {list(models)}")
     model_ranks = {
         m: {int(idx): rank + 1
             for rank, idx in enumerate(top_codes(store, m, phone=phone, k=k)[0])}

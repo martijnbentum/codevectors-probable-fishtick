@@ -1,6 +1,18 @@
 import json
 import numpy as np
 from pathlib import Path
+import locations
+
+CB_MATRIX_DIR = locations.data / 'cb_matrices'
+
+
+# ---------------------------------------------------------------------------
+# Loading
+# ---------------------------------------------------------------------------
+
+def load_codebook_matrix(model_name):
+    """Load the codebook matrix (640, 128) for a model."""
+    return np.load(CB_MATRIX_DIR / f'{model_name}.npy')
 
 
 class CIStore:
@@ -96,5 +108,25 @@ class CIStore:
             raise ValueError(m)
 
 
+def index_to_ci_tuple(index):
+    '''Convert index back to ci tuple.
+    index:            combined index
+    '''
+    return index // 320, (index % 320) + 320
 
+def ci_tuple_to_index(ci_tuple):
+    return ci_tuple[0] * 320 + (ci_tuple[1] - 320)
         
+
+def index_to_codevector(index, codebook = None, model_name = None):
+    '''Convert index back to codevector.
+    index:            combined index
+    codebook:         2-D array of shape (n_codes, codevector_dim)
+    model_name:       name of model to load codebook for, if codebook not provided
+    '''
+    if codebook is None and model_name is None:
+        raise ValueError('Must provide either codebook or model_name')
+    if codebook is None:
+        codebook = load_codebook_matrix(model_name)
+    ci_tuple = index_to_ci_tuple(index)
+    return codebook[ci_tuple]

@@ -64,11 +64,9 @@ def flatten(items):
     '''
     return [x for sublist in items for x in sublist]
 
-def ci_tuple_to_index(ci_tuple):
-    return ci_tuple[0] * 320 + (ci_tuple[1] - 320)
 
 def ci_tuples_to_indicies(ci_tuples):
-    return [ci_tuple_to_index(t) for t in ci_tuples]
+    return [ci_store.ci_tuple_to_index(t) for t in ci_tuples]
 
 def load_phone_labels():
     with open('../data/phone_frequency.json','r') as fin:

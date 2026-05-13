@@ -1,23 +1,15 @@
 import numpy as np
 
+import ci_store
 from ci_analysis import sort_w2v2_model_names
-import locations
-
-CB_MATRIX_DIR = locations.data / 'cb_matrices'
-
-
-# ---------------------------------------------------------------------------
-# Loading
-# ---------------------------------------------------------------------------
-
-def load_cb_matrix(model_name):
-    """Load the codebook matrix (640, 128) for a model."""
-    return np.load(CB_MATRIX_DIR / f'{model_name}.npy')
 
 
 # ---------------------------------------------------------------------------
 # Per-codevector distances between two models
 # ---------------------------------------------------------------------------
+
+def load_cb_matrix(model_name):
+    return ci_store.load_codebook_matrix(model_name)
 
 def codevector_l2(model_a, model_b):
     """Per-codevector L2 distance between two models. Returns array (640,)."""
@@ -26,7 +18,8 @@ def codevector_l2(model_a, model_b):
 
 
 def codevector_cosine_distance(model_a, model_b):
-    """Per-codevector cosine distance (1 − similarity). Returns array (640,) in [0, 2]."""
+    """Per-codevector cosine distance (1 − similarity). 
+    Returns array (640,) in [0, 2]."""
     a, b = load_cb_matrix(model_a), load_cb_matrix(model_b)
     a_n = a / (np.linalg.norm(a, axis=1, keepdims=True) + 1e-10)
     b_n = b / (np.linalg.norm(b, axis=1, keepdims=True) + 1e-10)

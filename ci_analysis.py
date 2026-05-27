@@ -372,3 +372,101 @@ def top_k_rank_matrix(store, phone, models=None, k=10, reference='last'):
     sort_key = np.where(np.isnan(ref_ranks), fallback + k, ref_ranks)
     order = np.argsort(sort_key)
     return matrix[order], [all_indices[i] for i in order], list(models)
+
+
+# ---------------------------------------------------------------------------
+# Codebook slice
+# ---------------------------------------------------------------------------
+
+class CodebookSliceStore:
+    """Wraps a CI store, restricting all count access to one codebook's range.
+
+    codebook: 1 (indices 0–319) or 2 (indices 320–639).
+    Passes through .models, .phones, and .get() with the last dimension sliced.
+    .n_codes is set to 320 to reflect the reduced codebook size.
+    """
+    _SLICES = {1: slice(0, 320), 2: slice(320, 640)}
+
+    def __init__(self, store, codebook):
+        if codebook not in (1, 2):
+            raise ValueError(f"codebook must be 1 or 2; got {codebook!r}")
+        self._store = store
+        self._slice = self._SLICES[codebook]
+        self.models = store.models
+        self.phones = store.phones
+        self.n_codes = 320
+
+    def get(self, **kwargs):
+        return self._store.get(**kwargs)[..., self._slice]
+
+
+# ---------------------------------------------------------------------------
+# cb1 vs cb2 usage distribution divergence
+# ---------------------------------------------------------------------------
+
+def cb_usage_divergence(store, model, phone=None, divergence='js', smoothing=1e-10):
+    """Divergence between cb1 and cb2 usage distributions for a model.
+
+    Compares P(code | model, [phone]) over cb1 codes against the same over cb2 codes.
+    phone:      restrict to one phone; None collapses over all phones.
+    divergence: 'js' (symmetric, default) or 'kl'
+    """
+    s1, s2 = CodebookSliceStore(store, 1), CodebookSliceStore(store, 2)
+    if phone is not None:
+        p = ci_pdf_for_model_phone(s1, model, phone, smoothing)
+        q = ci_pdf_for_model_phone(s2, model, phone, smoothing)
+    else:
+        p = ci_pdf_for_model(s1, model, smoothing)
+        q = ci_pdf_for_model(s2, model, smoothing)
+    return _divergence_fn(divergence, scalar=True)(p, q)
+
+
+def cb_usage_divergence_trajectory(store, models=None, phone=None,
+                                    divergence='js', smoothing=1e-10):
+    """cb1 vs cb2 usage divergence at each training step.
+
+    Returns (values, models) — parallel arrays.
+    """
+    if models is None:
+        models = sort_w2v2_model_names(store.models)
+    if not models:
+        raise ValueError("models list is empty")
+    values = [cb_usage_divergence(store, m, phone=phone,
+                                   divergence=divergence, smoothing=smoothing)
+              for m in models]
+    return np.array(values), list(models)
+
+
+def per_phone_cb_usage_divergence(store, model, divergence='js', smoothing=1e-10):
+    """cb1 vs cb2 usage divergence broken down by phone.
+
+    Returns dict {phone: divergence_value}.
+    """
+    return {
+        p: cb_usage_divergence(store, model, phone=p,
+                                divergence=divergence, smoothing=smoothing)
+        for p in store.phones
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phone-pair comparison
+# ---------------------------------------------------------------------------
+
+def phone_pair_divergence_trajectory(store, phone1, phone2, models=None,
+                                      divergence='js', smoothing=1e-10):
+    """Divergence between phone1 and phone2 usage distributions at each training step.
+
+    Measures how differently the two phones select codes at each checkpoint.
+    divergence: 'js' (symmetric, default) or 'kl' (KL(phone1 || phone2))
+    Returns (values, models) — parallel arrays.
+    """
+    if models is None:
+        models = sort_w2v2_model_names(store.models)
+    if not models:
+        raise ValueError("models list is empty")
+    fn = _divergence_fn(divergence, scalar=True)
+    values = [fn(ci_pdf_for_model_phone(store, m, phone1, smoothing),
+                 ci_pdf_for_model_phone(store, m, phone2, smoothing))
+              for m in models]
+    return np.array(values), list(models)

@@ -5,6 +5,7 @@ from progressbar import progressbar
 from ci_analysis import sort_w2v2_model_names
 
 import locations
+import stores
 
 def load_model_metadata(model_name):
     d = json.load(open(locations.data / 'model_paths.json'))
@@ -24,6 +25,7 @@ def wav2vec2_v1_model_names():
 def make_or_load_store(model_name):
     store_root = locations.output_data / model_name
     s = store.Store(store_root)
+    stores.attach_cgn(s)
     if s.load_model_metadata(model_name) is None:
         mmd = load_model_metadata(model_name)
         s.register_model(**mmd)
